@@ -30,7 +30,13 @@ def normalize_args(args):
     if args.corruption_type == "none":
         args.data_tag = "clean"
     else:
-        args.data_tag = args.corruption_type
+        fix_tag = f"fix{args.fixed_corruption}_cseed{args.corruption_seed}"
+        args.data_tag = (
+            f"{args.corruption_type}"
+            f"_r{args.corruption_ratio}"
+            f"_s{args.corruption_std}"
+            f"_{fix_tag}"
+        )
 
     args.module_tag = f"f{args.use_forward}_i{args.use_inverse}_p{args.use_phys}"
     return args
@@ -65,20 +71,41 @@ def build_aux_models(args, obs_dim, act_dim):
 
     if args.model_mode == "separate":
         if args.use_forward:
-            forward_model = ForwardModel(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden)
+            forward_model = ForwardModel(
+                obs_dim,
+                act_dim,
+                hidden_dim=args.hidden_dim,
+                n_hidden=args.n_hidden,
+            )
         if args.use_inverse:
-            inverse_model = InverseModel(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden)
-
+            inverse_model = InverseModel(
+                obs_dim,
+                act_dim,
+                hidden_dim=args.hidden_dim,
+                n_hidden=args.n_hidden,
+            )
     elif args.model_mode == "shared":
-        encoder = SharedEncoder(obs_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden)
+        encoder = SharedEncoder(
+            obs_dim,
+            hidden_dim=args.hidden_dim,
+            n_hidden=args.n_hidden,
+        )
         feat_dim = args.hidden_dim
+
         if args.use_forward:
             forward_model = SharedForwardModel(
-                feat_dim, act_dim, obs_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden
+                feat_dim,
+                act_dim,
+                obs_dim,
+                hidden_dim=args.hidden_dim,
+                n_hidden=args.n_hidden,
             )
         if args.use_inverse:
             inverse_model = SharedInverseModel(
-                feat_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden
+                feat_dim,
+                act_dim,
+                hidden_dim=args.hidden_dim,
+                n_hidden=args.n_hidden,
             )
     else:
         raise ValueError(f"Unknown model_mode: {args.model_mode}")
@@ -88,11 +115,13 @@ def build_aux_models(args, obs_dim, act_dim):
 
 def main(args):
     args = normalize_args(args)
-
     torch.set_num_threads(1)
+
     log = Log(Path(args.log_dir) / args.env_name, vars(args))
 
-    group_name = f"{args.algo_name}_{args.data_tag}_{args.env_name}_{args.model_mode}_{args.module_tag}"
+    group_name = (
+        f"{args.algo_name}_{args.data_tag}_{args.env_name}_{args.model_mode}_{args.module_tag}"
+    )
     run_name = f"{group_name}_seed{args.seed}"
 
     wandb.init(
@@ -105,21 +134,48 @@ def main(args):
 
     log(f"Log dir: {log.dir}")
 
-    env, dataset = get_env_and_dataset(log, args.env_name, args.max_episode_steps, args)
+    env, dataset = get_env_and_dataset(
+        log,
+        args.env_name,
+        args.max_episode_steps,
+        args,
+    )
+
     obs_dim = dataset["observations"].shape[1]
     act_dim = dataset["actions"].shape[1]
+
+    # training seed 只控制训练，不控制 corruption
     set_seed(args.seed, env=env)
 
     if args.deterministic_policy:
-        policy = DeterministicPolicy(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden)
+        policy = DeterministicPolicy(
+            obs_dim,
+            act_dim,
+            hidden_dim=args.hidden_dim,
+            n_hidden=args.n_hidden,
+        )
     else:
-        policy = GaussianPolicy(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden)
+        policy = GaussianPolicy(
+            obs_dim,
+            act_dim,
+            hidden_dim=args.hidden_dim,
+            n_hidden=args.n_hidden,
+        )
 
     encoder, forward_model, inverse_model = build_aux_models(args, obs_dim, act_dim)
 
     iql = ImplicitQLearning(
-        qf=TwinQ(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden),
-        vf=ValueFunction(obs_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden),
+        qf=TwinQ(
+            obs_dim,
+            act_dim,
+            hidden_dim=args.hidden_dim,
+            n_hidden=args.n_hidden,
+        ),
+        vf=ValueFunction(
+            obs_dim,
+            hidden_dim=args.hidden_dim,
+            n_hidden=args.n_hidden,
+        ),
         policy=policy,
         encoder=encoder,
         forward_model=forward_model,
@@ -148,10 +204,12 @@ def main(args):
         wandb.log(metrics, step=step)
 
         if (step + 1) % args.eval_period == 0:
-            eval_returns = np.array([
-                evaluate_policy(env, policy, args.max_episode_steps)
-                for _ in range(args.n_eval_episodes)
-            ])
+            eval_returns = np.array(
+                [
+                    evaluate_policy(env, policy, args.max_episode_steps)
+                    for _ in range(args.n_eval_episodes)
+                ]
+            )
             normalized_returns = d4rl.get_normalized_score(args.env_name, eval_returns) * 100.0
 
             eval_metrics = {
@@ -181,6 +239,7 @@ if __name__ == "__main__":
     parser.add_argument("--env-name", required=True)
     parser.add_argument("--log-dir", required=True)
     parser.add_argument("--seed", type=int, default=0)
+
     parser.add_argument("--discount", type=float, default=0.99)
     parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--n-hidden", type=int, default=2)
@@ -204,7 +263,6 @@ if __name__ == "__main__":
 
     parser.add_argument("--algo-name", type=str, default="physiql", choices=["iql", "physiql"])
     parser.add_argument("--model-mode", type=str, default="separate", choices=["separate", "shared"])
-
     parser.add_argument("--use-forward", type=int, default=1)
     parser.add_argument("--use-inverse", type=int, default=1)
     parser.add_argument("--use-phys", type=int, default=1)
@@ -213,10 +271,21 @@ if __name__ == "__main__":
         "--corruption-type",
         type=str,
         default="none",
-        choices=["none", "obs_noise", "action_noise", "reward_noise", "mask", "transition_shuffle"],
+        choices=[
+            "none",
+            "obs_noise",
+            "action_noise",
+            "reward_noise",
+            "mask",
+            "transition_shuffle",
+        ],
     )
     parser.add_argument("--corruption-ratio", type=float, default=0.0)
     parser.add_argument("--corruption-std", type=float, default=0.0)
+
+    # 新增：corruption 独立随机控制
+    parser.add_argument("--fixed-corruption", type=int, default=1)
+    parser.add_argument("--corruption-seed", type=int, default=0)
 
     parser.add_argument("--data-tag", type=str, default="clean")
     parser.add_argument("--save-best", type=int, default=1)
