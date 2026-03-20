@@ -37,29 +37,24 @@ def _select_corrupt_idx(n, ratio, device, generator=None):
 
 
 def _compute_corrupt_signature(corrupt_idx: torch.Tensor):
-    """
-    返回两个轻量日志字段：
-    1) 前 20 个 corrupt idx
-    2) 一个稳定的 hash-like 签名，用于跨 seed 对比
-
-    不把完整 corrupt_idx 挂到 dataset 上，避免占用额外内存。
-    """
     if corrupt_idx.numel() == 0:
-        head = torch.empty(0, dtype=torch.long)
-        idx_hash = -1
-        return head, idx_hash
+        return {
+            "corrupt_idx_head": [],
+            "corrupt_idx_hash": -1,
+        }
 
     corrupt_idx_cpu = corrupt_idx.detach().cpu().to(torch.long)
-    head = corrupt_idx_cpu[:20].clone()
+    head = corrupt_idx_cpu[:20].tolist()
 
-    # 一个简单稳定的整数签名，够用于验证“是否同一批索引”
-    # 用 int64 规避溢出，再转 Python int
     weights = torch.arange(
         1, corrupt_idx_cpu.numel() + 1, dtype=torch.long
     )
     idx_hash = int((corrupt_idx_cpu * weights).sum().item())
 
-    return head, idx_hash
+    return {
+        "corrupt_idx_head": head,
+        "corrupt_idx_hash": idx_hash,
+    }
 
 
 def apply_corruption(dataset, args):
@@ -76,9 +71,11 @@ def apply_corruption(dataset, args):
 
     if corruption_type == "none":
         dataset["corrupt_mask"] = corrupt_mask
-        dataset["corrupt_idx_head"] = torch.empty(0, dtype=torch.long)
-        dataset["corrupt_idx_hash"] = -1
-        return dataset
+        corruption_info = {
+            "corrupt_idx_head": [],
+            "corrupt_idx_hash": -1,
+        }
+        return dataset, corruption_info
 
     g = _build_generator(dataset, args)
 
@@ -178,10 +175,6 @@ def apply_corruption(dataset, args):
         raise ValueError(f"Unknown corruption type: {corruption_type}")
 
     dataset["corrupt_mask"] = corrupt_mask
+    corruption_info = _compute_corrupt_signature(corrupt_idx)
 
-    # 只保存轻量验证信息，不保存完整 corrupt_idx
-    corrupt_idx_head, corrupt_idx_hash = _compute_corrupt_signature(corrupt_idx)
-    dataset["corrupt_idx_head"] = corrupt_idx_head
-    dataset["corrupt_idx_hash"] = corrupt_idx_hash
-
-    return dataset
+    return dataset, corruption_info

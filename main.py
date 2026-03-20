@@ -49,7 +49,6 @@ def normalize_args(args):
     args.module_tag = f"f{args.use_forward}_i{args.use_inverse}_p{args.use_phys}"
     return args
 
-
 def get_env_and_dataset(log, env_name, max_episode_steps, args):
     env = gym.make(env_name)
     dataset = d4rl.qlearning_dataset(env)
@@ -65,8 +64,8 @@ def get_env_and_dataset(log, env_name, max_episode_steps, args):
     for k, v in dataset.items():
         dataset[k] = torchify(v)
 
-    dataset = apply_corruption(dataset, args)
-    return env, dataset
+    dataset, corruption_info = apply_corruption(dataset, args)
+    return env, dataset, corruption_info
 
 
 def build_aux_models(args, obs_dim, act_dim):
@@ -152,7 +151,7 @@ def main(args):
         else "Using device: cpu"
     )
 
-    env, dataset = get_env_and_dataset(
+    env, dataset, corruption_info = get_env_and_dataset(
         log, args.env_name, args.max_episode_steps, args,
     )
 
@@ -165,18 +164,14 @@ def main(args):
         f"({corrupt_count} / {len(dataset['corrupt_mask'])})"
     )
 
-    if "corrupt_idx_hash" in dataset:
-        log(f"Corrupt idx hash: {dataset['corrupt_idx_hash']}")
-
-    if "corrupt_idx_head" in dataset:
-        head_list = dataset["corrupt_idx_head"].tolist()
-        log(f"Corrupt idx head(20): {head_list}")
+    log(f"Corrupt idx hash: {corruption_info['corrupt_idx_hash']}")
+    log(f"Corrupt idx head(20): {corruption_info['corrupt_idx_head']}")
 
     wandb.log(
         {
             "data/corrupt_ratio_actual": corrupt_ratio_actual,
             "data/corrupt_count": corrupt_count,
-            "data/corrupt_idx_hash": float(dataset.get("corrupt_idx_hash", -1)),
+            "data/corrupt_idx_hash": float(corruption_info["corrupt_idx_hash"]),
         },
         step=0,
     )
@@ -281,7 +276,7 @@ if __name__ == "__main__":
     parser.add_argument("--gpu-id", type=int, default=0)
 
     parser.add_argument("--discount", type=float, default=0.99)
-    parser.add_argument("--hidden-dim", type=float, default=256)
+    parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--n-hidden", type=int, default=2)
     parser.add_argument("--n-steps", type=int, default=10 ** 6)
     parser.add_argument("--batch-size", type=int, default=256)
