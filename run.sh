@@ -13,7 +13,7 @@ do
   LOG_DIR="./runs/physiql_clean_${ENV_NAME}_gpu${GPU_ID}_seed${SEED}"
   mkdir -p "${LOG_DIR}"
 
-  nohup env CUDA_VISIBLE_DEVICES="${GPU_ID}" "${PYTHON_BIN}" -u main.py \
+  nohup env CUDA_VISIBLE_DEVICES="${GPU_ID}" -u main.py \
     --log-dir "${LOG_DIR}" \
     --env-name "${ENV_NAME}" \
     --algo-name physiql \
