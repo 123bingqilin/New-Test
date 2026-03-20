@@ -7,13 +7,16 @@ export MUJOCO_GL=egl
 
 ENV_NAME="hopper-medium-v2"
 GPU_ID=0
+PYTHON_BIN=/opt/conda/miniconda3/envs/iql/bin/python
+WANDB_ENTITY="dlut-pqj"
+WANDB_PROJECT="A10-iql"
 
 for SEED in 0 1 2
 do
   LOG_DIR="./runs/physiql_clean_${ENV_NAME}_gpu${GPU_ID}_seed${SEED}"
   mkdir -p "${LOG_DIR}"
 
-  nohup env CUDA_VISIBLE_DEVICES="${GPU_ID}" -u main.py \
+  nohup env CUDA_VISIBLE_DEVICES="${GPU_ID}" "${PYTHON_BIN}" -u main.py \
     --log-dir "${LOG_DIR}" \
     --env-name "${ENV_NAME}" \
     --algo-name physiql \
@@ -30,5 +33,7 @@ do
     --gpu-id 0 \
     --n-steps 1000000 \
     --eval-period 5000 \
+    --wandb-entity "${WANDB_ENTITY}" \
+    --wandb-project "${WANDB_PROJECT}" \
     > "${LOG_DIR}/train.log" 2>&1 &
 done
