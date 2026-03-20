@@ -56,6 +56,8 @@ do
     --eval-period "${EVAL_PERIOD}" \
     --wandb-entity "${WANDB_ENTITY}" \
     --wandb-project "${WANDB_PROJECT}" \
+    --core-log-interval 100 \
+    --analysis-log-interval 5000 \
     > "${LOG_DIR}/train.log" 2>&1 &
 done
 
@@ -88,6 +90,8 @@ do
     --eval-period "${EVAL_PERIOD}" \
     --wandb-entity "${WANDB_ENTITY}" \
     --wandb-project "${WANDB_PROJECT}" \
+    --core-log-interval 100 \
+    --analysis-log-interval 5000 \
     > "${LOG_DIR}/train.log" 2>&1 &
 done
 
@@ -120,5 +124,7 @@ do
     --eval-period "${EVAL_PERIOD}" \
     --wandb-entity "${WANDB_ENTITY}" \
     --wandb-project "${WANDB_PROJECT}" \
+    --core-log-interval 100 \
+    --analysis-log-interval 5000 \
     > "${LOG_DIR}/train.log" 2>&1 &
 done
