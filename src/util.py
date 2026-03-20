@@ -10,8 +10,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-
 DEFAULT_DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+def set_default_device(device_str):
+    global DEFAULT_DEVICE
+    DEFAULT_DEVICE = torch.device(device_str)
 
 
 class Squeeze(nn.Module):
@@ -29,7 +33,7 @@ def mlp(dims, activation=nn.ReLU, output_activation=None, squeeze_output=False):
 
     layers = []
     for i in range(n_dims - 2):
-        layers.append(nn.Linear(dims[i], dims[i+1]))
+        layers.append(nn.Linear(dims[i], dims[i + 1]))
         layers.append(activation())
     layers.append(nn.Linear(dims[-2], dims[-1]))
     if output_activation is not None:
@@ -59,7 +63,6 @@ def torchify(x):
     return x
 
 
-
 def return_range(dataset, max_episode_steps):
     returns, lengths = [], []
     ep_ret, ep_len = 0., 0
@@ -70,13 +73,12 @@ def return_range(dataset, max_episode_steps):
             returns.append(ep_ret)
             lengths.append(ep_len)
             ep_ret, ep_len = 0., 0
-    # returns.append(ep_ret)    # incomplete trajectory
-    lengths.append(ep_len)      # but still keep track of number of steps
+
+    lengths.append(ep_len)
     assert sum(lengths) == len(dataset['rewards'])
     return min(returns), max(returns)
 
 
-# dataset is a dict, values of which are tensors of same first dimension
 def sample_batch(dataset, batch_size):
     k = list(dataset.keys())[0]
     n, device = len(dataset[k]), dataset[k].device
@@ -116,17 +118,17 @@ def _gen_dir_name():
     rand_str = ''.join(random.choices(string.ascii_lowercase, k=4))
     return f'{now_str}_{rand_str}'
 
+
 class Log:
-    def __init__(self, root_log_dir, cfg_dict,
-                 txt_filename='log.txt',
-                 csv_filename='progress.csv',
-                 cfg_filename='config.json',
-                 flush=True):
-        self.dir = Path(root_log_dir)/_gen_dir_name()
+    def __init__(self, root_log_dir, cfg_dict, txt_filename='log.txt', csv_filename='progress.csv',
+                 cfg_filename='config.json', flush=True):
+        self.dir = Path(root_log_dir) / _gen_dir_name()
         self.dir.mkdir(parents=True)
-        self.txt_file = open(self.dir/txt_filename, 'w')
+
+        self.txt_file = open(self.dir / txt_filename, 'w')
         self.csv_file = None
-        (self.dir/cfg_filename).write_text(json.dumps(cfg_dict))
+        (self.dir / cfg_filename).write_text(json.dumps(cfg_dict))
+
         self.txt_filename = txt_filename
         self.csv_filename = csv_filename
         self.cfg_filename = cfg_filename
@@ -143,10 +145,9 @@ class Log:
 
     def row(self, dict):
         if self.csv_file is None:
-            self.csv_file = open(self.dir/self.csv_filename, 'w', newline='')
+            self.csv_file = open(self.dir / self.csv_filename, 'w', newline='')
             self.csv_writer = csv.DictWriter(self.csv_file, list(dict.keys()))
             self.csv_writer.writeheader()
-
         self(str(dict))
         self.csv_writer.writerow(dict)
         if self.flush:

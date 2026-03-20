@@ -1,5 +1,4 @@
 from pathlib import Path
-
 import gym
 import wandb
 import d4rl
@@ -10,7 +9,15 @@ from tqdm import trange
 from src.iql import ImplicitQLearning
 from src.policy import GaussianPolicy, DeterministicPolicy
 from src.value_functions import TwinQ, ValueFunction
-from src.util import return_range, set_seed, Log, sample_batch, torchify, evaluate_policy
+from src.util import (
+    return_range,
+    set_seed,
+    Log,
+    sample_batch,
+    torchify,
+    evaluate_policy,
+    set_default_device,
+)
 from src.auxiliary import (
     ForwardModel,
     InverseModel,
@@ -91,7 +98,6 @@ def build_aux_models(args, obs_dim, act_dim):
             n_hidden=args.n_hidden,
         )
         feat_dim = args.hidden_dim
-
         if args.use_forward:
             forward_model = SharedForwardModel(
                 feat_dim,
@@ -115,14 +121,19 @@ def build_aux_models(args, obs_dim, act_dim):
 
 def main(args):
     args = normalize_args(args)
+
+    if torch.cuda.is_available():
+        set_default_device(f"cuda:{args.gpu_id}")
+    else:
+        set_default_device("cpu")
+
     torch.set_num_threads(1)
 
     log = Log(Path(args.log_dir) / args.env_name, vars(args))
-
     group_name = (
         f"{args.algo_name}_{args.data_tag}_{args.env_name}_{args.model_mode}_{args.module_tag}"
     )
-    run_name = f"{group_name}_seed{args.seed}"
+    run_name = f"{group_name}_seed{args.seed}_gpu{args.gpu_id}"
 
     wandb.init(
         project=args.wandb_project,
@@ -133,6 +144,7 @@ def main(args):
     )
 
     log(f"Log dir: {log.dir}")
+    log(f"Using device: cuda:{args.gpu_id}" if torch.cuda.is_available() else "Using device: cpu")
 
     env, dataset = get_env_and_dataset(
         log,
@@ -140,7 +152,6 @@ def main(args):
         args.max_episode_steps,
         args,
     )
-
     obs_dim = dataset["observations"].shape[1]
     act_dim = dataset["actions"].shape[1]
 
@@ -205,10 +216,7 @@ def main(args):
 
         if (step + 1) % args.eval_period == 0:
             eval_returns = np.array(
-                [
-                    evaluate_policy(env, policy, args.max_episode_steps)
-                    for _ in range(args.n_eval_episodes)
-                ]
+                [evaluate_policy(env, policy, args.max_episode_steps) for _ in range(args.n_eval_episodes)]
             )
             normalized_returns = d4rl.get_normalized_score(args.env_name, eval_returns) * 100.0
 
@@ -239,6 +247,7 @@ if __name__ == "__main__":
     parser.add_argument("--env-name", required=True)
     parser.add_argument("--log-dir", required=True)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--gpu-id", type=int, default=0)
 
     parser.add_argument("--discount", type=float, default=0.99)
     parser.add_argument("--hidden-dim", type=int, default=256)
@@ -250,6 +259,7 @@ if __name__ == "__main__":
     parser.add_argument("--tau", type=float, default=0.7)
     parser.add_argument("--beta", type=float, default=3.0)
     parser.add_argument("--deterministic-policy", action="store_true")
+
     parser.add_argument("--eval-period", type=int, default=5000)
     parser.add_argument("--n-eval-episodes", type=int, default=10)
     parser.add_argument("--max-episode-steps", type=int, default=1000)
@@ -283,7 +293,7 @@ if __name__ == "__main__":
     parser.add_argument("--corruption-ratio", type=float, default=0.0)
     parser.add_argument("--corruption-std", type=float, default=0.0)
 
-    # 新增：corruption 独立随机控制
+    # corruption 独立随机控制
     parser.add_argument("--fixed-corruption", type=int, default=1)
     parser.add_argument("--corruption-seed", type=int, default=0)
 
