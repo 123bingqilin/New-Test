@@ -6,12 +6,12 @@ export MUJOCO_PY_MUJOCO_PATH=/home/peng/.mujoco/mujoco210
 export MUJOCO_GL=egl
 
 ENV_NAME="hopper-medium-v2"
-GPU_ID=0
+GPU_ID=2
 PYTHON_BIN=/opt/conda/miniconda3/envs/iql/bin/python
 WANDB_ENTITY="dlut-pqj"
 WANDB_PROJECT="A10-iql"
 
-for SEED in 0 1 2
+for SEED in 0
 do
   LOG_DIR="./runs/physiql_clean_${ENV_NAME}_gpu${GPU_ID}_seed${SEED}"
   mkdir -p "${LOG_DIR}"
@@ -31,8 +31,8 @@ do
     --beta 3.0 \
     --seed "${SEED}" \
     --gpu-id 0 \
-    --n-steps 1000000 \
-    --eval-period 5000 \
+    --n-steps 10000 \
+    --eval-period 2000 \
     --wandb-entity "${WANDB_ENTITY}" \
     --wandb-project "${WANDB_PROJECT}" \
     > "${LOG_DIR}/train.log" 2>&1 &

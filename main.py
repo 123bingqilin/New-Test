@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import gym
 import wandb
 import d4rl
@@ -130,6 +131,7 @@ def main(args):
     torch.set_num_threads(1)
 
     log = Log(Path(args.log_dir) / args.env_name, vars(args))
+
     group_name = (
         f"{args.algo_name}_{args.data_tag}_{args.env_name}_{args.model_mode}_{args.module_tag}"
     )
@@ -144,14 +146,41 @@ def main(args):
     )
 
     log(f"Log dir: {log.dir}")
-    log(f"Using device: cuda:{args.gpu_id}" if torch.cuda.is_available() else "Using device: cpu")
+    log(
+        f"Using device: cuda:{args.gpu_id}"
+        if torch.cuda.is_available()
+        else "Using device: cpu"
+    )
 
     env, dataset = get_env_and_dataset(
-        log,
-        args.env_name,
-        args.max_episode_steps,
-        args,
+        log, args.env_name, args.max_episode_steps, args,
     )
+
+    # ---- corruption 日志：用于验证 fixed corruption 是否真的复用同一批样本 ----
+    corrupt_ratio_actual = float(dataset["corrupt_mask"].float().mean().item())
+    corrupt_count = int(dataset["corrupt_mask"].sum().item())
+
+    log(
+        f"Actual corrupt ratio: {corrupt_ratio_actual:.6f} "
+        f"({corrupt_count} / {len(dataset['corrupt_mask'])})"
+    )
+
+    if "corrupt_idx_hash" in dataset:
+        log(f"Corrupt idx hash: {dataset['corrupt_idx_hash']}")
+
+    if "corrupt_idx_head" in dataset:
+        head_list = dataset["corrupt_idx_head"].tolist()
+        log(f"Corrupt idx head(20): {head_list}")
+
+    wandb.log(
+        {
+            "data/corrupt_ratio_actual": corrupt_ratio_actual,
+            "data/corrupt_count": corrupt_count,
+            "data/corrupt_idx_hash": float(dataset.get("corrupt_idx_hash", -1)),
+        },
+        step=0,
+    )
+
     obs_dim = dataset["observations"].shape[1]
     act_dim = dataset["actions"].shape[1]
 
@@ -216,10 +245,12 @@ def main(args):
 
         if (step + 1) % args.eval_period == 0:
             eval_returns = np.array(
-                [evaluate_policy(env, policy, args.max_episode_steps) for _ in range(args.n_eval_episodes)]
+                [
+                    evaluate_policy(env, policy, args.max_episode_steps)
+                    for _ in range(args.n_eval_episodes)
+                ]
             )
             normalized_returns = d4rl.get_normalized_score(args.env_name, eval_returns) * 100.0
-
             eval_metrics = {
                 "eval/return_mean": eval_returns.mean(),
                 "eval/return_std": eval_returns.std(),
@@ -250,7 +281,7 @@ if __name__ == "__main__":
     parser.add_argument("--gpu-id", type=int, default=0)
 
     parser.add_argument("--discount", type=float, default=0.99)
-    parser.add_argument("--hidden-dim", type=int, default=256)
+    parser.add_argument("--hidden-dim", type=float, default=256)
     parser.add_argument("--n-hidden", type=int, default=2)
     parser.add_argument("--n-steps", type=int, default=10 ** 6)
     parser.add_argument("--batch-size", type=int, default=256)
@@ -259,7 +290,6 @@ if __name__ == "__main__":
     parser.add_argument("--tau", type=float, default=0.7)
     parser.add_argument("--beta", type=float, default=3.0)
     parser.add_argument("--deterministic-policy", action="store_true")
-
     parser.add_argument("--eval-period", type=int, default=5000)
     parser.add_argument("--n-eval-episodes", type=int, default=10)
     parser.add_argument("--max-episode-steps", type=int, default=1000)
