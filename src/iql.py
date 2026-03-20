@@ -156,6 +156,7 @@ class ImplicitQLearning(nn.Module):
         rewards,
         terminals,
         corrupt_mask=None,
+        log_analysis=False,
         **kwargs,
     ):
         with torch.no_grad():
@@ -263,6 +264,38 @@ class ImplicitQLearning(nn.Module):
             "exp_adv_mean": exp_adv.mean().item(),
             "weighted_bc_mean": (w_phys * exp_adv * bc_losses).mean().item(),
         }
+
+        if log_analysis:
+            _append_quantiles(out, "w_phys", w_phys, [0.05, 0.25, 0.50, 0.75, 0.95])
+            _append_group_means(out, "w_phys", w_phys, corrupt_mask)
+
+            if dyn_residual is not None:
+                _append_quantiles(out, "dyn_residual", dyn_residual, [0.50, 0.90, 0.95, 0.99])
+                _append_group_means(out, "dyn_residual", dyn_residual, corrupt_mask)
+
+            if inv_residual is not None:
+                _append_quantiles(out, "inv_residual", inv_residual, [0.50, 0.90, 0.95, 0.99])
+                _append_group_means(out, "inv_residual", inv_residual, corrupt_mask)
+
+            if phys_residual is not None:
+                _append_quantiles(out, "phys_residual", phys_residual, [0.50, 0.90, 0.95, 0.99])
+                _append_group_means(out, "phys_residual", phys_residual, corrupt_mask)
+
+            if self.algo_name == "physiql":
+                if self.use_forward:
+                    out["forward_loss"] = forward_loss.item()
+                if self.use_inverse:
+                    out["inverse_loss"] = inverse_loss.item()
+                if dyn_residual is not None:
+                    out["dyn_residual_mean"] = dyn_residual.mean().item()
+                if inv_residual is not None:
+                    out["inv_residual_mean"] = inv_residual.mean().item()
+                if phys_residual is not None:
+                    out["phys_residual_mean"] = phys_residual.mean().item()
+                out["w_phys_mean"] = w_phys.mean().item()
+                out["w_phys_std"] = w_phys.std().item()
+
+        return out
 
         _append_quantiles(out, "w_phys", w_phys, [0.05, 0.25, 0.50, 0.75, 0.95])
         _append_group_means(out, "w_phys", w_phys, corrupt_mask)

@@ -234,9 +234,34 @@ def main(args):
     best_normalized_return = -1e9
 
     for step in trange(args.n_steps):
-        metrics = iql.update(**sample_batch(dataset, args.batch_size))
-        metrics["step"] = step
-        wandb.log(metrics, step=step)
+        log_core = ((step + 1) % args.core_log_interval == 0)
+        log_analysis = ((step + 1) % args.analysis_log_interval == 0)
+
+        metrics = iql.update(
+            **sample_batch(dataset, args.batch_size),
+            log_analysis=log_analysis,
+        )
+
+        core_metrics = {
+            "v_loss": metrics["v_loss"],
+            "q_loss": metrics["q_loss"],
+            "policy_loss": metrics["policy_loss"],
+            "adv_mean": metrics["adv_mean"],
+            "exp_adv_mean": metrics["exp_adv_mean"],
+            "weighted_bc_mean": metrics["weighted_bc_mean"],
+            "step": step,
+        }
+
+        if log_core:
+            wandb.log(core_metrics, step=step)
+
+        if log_analysis:
+            analysis_metrics = {
+                k: v for k, v in metrics.items()
+                if k not in core_metrics
+            }
+            analysis_metrics["step"] = step
+            wandb.log(analysis_metrics, step=step)
 
         if (step + 1) % args.eval_period == 0:
             eval_returns = np.array(
@@ -324,5 +349,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--data-tag", type=str, default="clean")
     parser.add_argument("--save-best", type=int, default=1)
+
+    parser.add_argument("--core-log-interval", type=int, default=100)
+    parser.add_argument("--analysis-log-interval", type=int, default=5000)
 
     main(parser.parse_args())
