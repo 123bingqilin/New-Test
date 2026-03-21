@@ -107,6 +107,8 @@ class ImplicitQLearning(nn.Module):
         phys_norm_eps=1e-6,
         phys_quantile_center=0.50,
         phys_quantile_upper=0.95,
+        phys_apply_policy=1,
+        phys_apply_q=0,
     ):
         super().__init__()
         self.algo_name = algo_name
@@ -114,6 +116,8 @@ class ImplicitQLearning(nn.Module):
         self.use_forward = bool(use_forward)
         self.use_inverse = bool(use_inverse)
         self.use_phys = bool(use_phys)
+        self.phys_apply_policy = bool(phys_apply_policy)
+        self.phys_apply_q = bool(phys_apply_q)
 
         self.qf = qf.to(DEFAULT_DEVICE)
         self.q_target = copy.deepcopy(qf).requires_grad_(False).to(DEFAULT_DEVICE)
@@ -212,17 +216,6 @@ class ImplicitQLearning(nn.Module):
         v_loss.backward()
         self.v_optimizer.step()
 
-        # q
-        targets = rewards + (1.0 - terminals.float()) * self.discount * next_v.detach()
-        qs = self.qf.both(observations, actions)
-        q_loss = sum(F.mse_loss(q, targets) for q in qs) / len(qs)
-
-        self.q_optimizer.zero_grad(set_to_none=True)
-        q_loss.backward()
-        self.q_optimizer.step()
-
-        update_exponential_moving_average(self.q_target, self.qf, self.alpha)
-
         # defaults
         forward_loss = torch.tensor(0.0, device=observations.device)
         inverse_loss = torch.tensor(0.0, device=observations.device)
@@ -282,6 +275,26 @@ class ImplicitQLearning(nn.Module):
                 else:
                     w_phys = torch.ones_like(adv).squeeze(-1) if adv.ndim > 1 else torch.ones_like(adv)
 
+        # q
+        targets = rewards + (1.0 - terminals.float()) * self.discount * next_v.detach()
+        qs = self.qf.both(observations, actions)
+
+        if self.use_phys and self.phys_apply_q and (w_phys is not None):
+            denom = w_phys.sum().clamp_min(1e-6)
+            q_losses = []
+            for q in qs:
+                per_sample_q_loss = (q - targets) ** 2
+                q_losses.append((w_phys * per_sample_q_loss).sum() / denom)
+            q_loss = sum(q_losses) / len(q_losses)
+        else:
+            q_loss = sum(F.mse_loss(q, targets) for q in qs) / len(qs)
+
+        self.q_optimizer.zero_grad(set_to_none=True)
+        q_loss.backward()
+        self.q_optimizer.step()
+
+        update_exponential_moving_average(self.q_target, self.qf, self.alpha)
+
         # policy
         exp_adv = torch.exp(self.beta * adv.detach()).clamp(max=EXP_ADV_MAX)
         policy_out = self.policy(observations)
@@ -294,7 +307,10 @@ class ImplicitQLearning(nn.Module):
         else:
             raise NotImplementedError
 
-        policy_loss = torch.mean(w_phys * exp_adv * bc_losses)
+        if self.use_phys and self.phys_apply_policy and (w_phys is not None):
+            policy_loss = torch.mean(w_phys * exp_adv * bc_losses)
+        else:
+            policy_loss = torch.mean(exp_adv * bc_losses)
 
         self.policy_optimizer.zero_grad(set_to_none=True)
         policy_loss.backward()

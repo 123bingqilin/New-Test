@@ -45,7 +45,7 @@ def normalize_args(args):
             f"_s{args.corruption_std}"
             f"_{fix_tag}"
         )
-
+    args.apply_tag = f"pp{args.phys_apply_policy}_pq{args.phys_apply_q}"
     args.module_tag = f"f{args.use_forward}_i{args.use_inverse}_p{args.use_phys}"
     return args
 
@@ -132,7 +132,8 @@ def main(args):
     log = Log(Path(args.log_dir) / args.env_name, vars(args))
 
     group_name = (
-        f"{args.algo_name}_{args.data_tag}_{args.env_name}_{args.model_mode}_{args.module_tag}"
+        f"{args.algo_name}_{args.data_tag}_{args.env_name}_{args.model_mode}_"
+        f"{args.module_tag}_{args.apply_tag}"
     )
     run_name = f"{group_name}_seed{args.seed}_gpu{args.gpu_id}"
 
@@ -233,6 +234,8 @@ def main(args):
         phys_norm_eps=args.phys_norm_eps,
         phys_quantile_center=args.phys_quantile_center,
         phys_quantile_upper=args.phys_quantile_upper,
+        phys_apply_policy=args.phys_apply_policy,
+        phys_apply_q=args.phys_apply_q,
     )
 
     best_normalized_return = -1e9
@@ -361,5 +364,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--core-log-interval", type=int, default=100)
     parser.add_argument("--analysis-log-interval", type=int, default=5000)
+
+    parser.add_argument("--phys-apply-policy", type=int, default=1)
+    parser.add_argument("--phys-apply-q", type=int, default=0)
 
     main(parser.parse_args())
