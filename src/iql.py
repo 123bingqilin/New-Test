@@ -7,7 +7,6 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from .util import DEFAULT_DEVICE, update_exponential_moving_average
 
-
 EXP_ADV_MAX = 100.0
 
 
@@ -18,11 +17,9 @@ def asymmetric_l2_loss(u, tau):
 def _append_quantiles(out, name, x, quantiles):
     if x is None:
         return
-
     x = x.detach().reshape(-1)
     if x.numel() == 0:
         return
-
     q = torch.tensor(quantiles, device=x.device, dtype=x.dtype)
     vals = torch.quantile(x, q)
     for qq, vv in zip(quantiles, vals):
@@ -32,17 +29,55 @@ def _append_quantiles(out, name, x, quantiles):
 def _append_group_means(out, name, x, corrupt_mask):
     if x is None or corrupt_mask is None:
         return
-
     x = x.detach().reshape(-1)
     mask = corrupt_mask.detach().reshape(-1) > 0.5
-
     if mask.numel() != x.numel():
         return
-
     if mask.any():
         out[f"{name}_corrupt_mean"] = x[mask].mean().item()
     if (~mask).any():
         out[f"{name}_clean_mean"] = x[~mask].mean().item()
+
+
+def _safe_std(x, eps=1e-6):
+    return x.std(unbiased=False).clamp_min(eps)
+
+
+def _normalize_phys_residual(
+    phys_residual,
+    mode="none",
+    eps=1e-6,
+    q_center=0.50,
+    q_upper=0.95,
+):
+    """
+    返回 score，约定：
+    - score 越大 -> 样本越可疑 -> 权重越小
+    - score >= 0
+    """
+    if phys_residual is None:
+        return None
+
+    r = phys_residual.detach().reshape(-1)
+
+    if mode == "none":
+        score = r
+
+    elif mode == "std":
+        mu = r.mean()
+        sigma = _safe_std(r, eps=eps)
+        score = torch.relu((r - mu) / sigma)
+
+    elif mode == "quantile":
+        q = torch.tensor([q_center, q_upper], device=r.device, dtype=r.dtype)
+        q_center_val, q_upper_val = torch.quantile(r, q)
+        scale = (q_upper_val - q_center_val).clamp_min(eps)
+        score = torch.relu((r - q_center_val) / scale)
+
+    else:
+        raise ValueError(f"Unknown phys_norm_mode: {mode}")
+
+    return score
 
 
 class ImplicitQLearning(nn.Module):
@@ -68,9 +103,12 @@ class ImplicitQLearning(nn.Module):
         encoder=None,
         forward_model=None,
         inverse_model=None,
+        phys_norm_mode="none",
+        phys_norm_eps=1e-6,
+        phys_quantile_center=0.50,
+        phys_quantile_upper=0.95,
     ):
         super().__init__()
-
         self.algo_name = algo_name
         self.model_mode = model_mode
         self.use_forward = bool(use_forward)
@@ -96,6 +134,11 @@ class ImplicitQLearning(nn.Module):
         self.alpha_phys = alpha_phys
         self.aux_weight = aux_weight
 
+        self.phys_norm_mode = phys_norm_mode
+        self.phys_norm_eps = phys_norm_eps
+        self.phys_quantile_center = phys_quantile_center
+        self.phys_quantile_upper = phys_quantile_upper
+
         self.encoder = None
         self.encoder_optimizer = None
         if encoder is not None:
@@ -117,7 +160,6 @@ class ImplicitQLearning(nn.Module):
     def _compute_phys_terms(self, observations, actions, next_observations):
         dyn_residual = None
         inv_residual = None
-
         forward_loss = torch.tensor(0.0, device=observations.device)
         inverse_loss = torch.tensor(0.0, device=observations.device)
 
@@ -133,7 +175,6 @@ class ImplicitQLearning(nn.Module):
                 pred_next_obs = self.forward_model(feat, actions)
             else:
                 pred_next_obs = self.forward_model(observations, actions)
-
             dyn_residual = torch.mean((pred_next_obs - next_observations) ** 2, dim=1)
             forward_loss = self.aux_weight * dyn_residual.mean()
 
@@ -142,7 +183,6 @@ class ImplicitQLearning(nn.Module):
                 pred_actions = self.inverse_model(feat, next_feat)
             else:
                 pred_actions = self.inverse_model(observations, next_observations)
-
             inv_residual = torch.mean((pred_actions - actions) ** 2, dim=1)
             inverse_loss = self.aux_weight * inv_residual.mean()
 
@@ -189,7 +229,7 @@ class ImplicitQLearning(nn.Module):
         dyn_residual = None
         inv_residual = None
         phys_residual = None
-
+        phys_score = None
         w_phys = torch.ones_like(adv).squeeze(-1) if adv.ndim > 1 else torch.ones_like(adv)
 
         # auxiliary modules only for physiql
@@ -198,9 +238,7 @@ class ImplicitQLearning(nn.Module):
                 self.encoder_optimizer.zero_grad(set_to_none=True)
 
             forward_loss, inverse_loss, dyn_residual, inv_residual = self._compute_phys_terms(
-                observations,
-                actions,
-                next_observations,
+                observations, actions, next_observations,
             )
 
             if self.use_forward and self.forward_optimizer is not None:
@@ -233,14 +271,21 @@ class ImplicitQLearning(nn.Module):
                     phys_residual = self.lambda_inv * inv_residual
 
                 if self.use_phys and phys_residual is not None:
-                    w_phys = torch.exp(-self.alpha_phys * phys_residual).clamp(min=1e-3, max=1.0)
+                    phys_score = _normalize_phys_residual(
+                        phys_residual,
+                        mode=self.phys_norm_mode,
+                        eps=self.phys_norm_eps,
+                        q_center=self.phys_quantile_center,
+                        q_upper=self.phys_quantile_upper,
+                    )
+                    w_phys = torch.exp(-self.alpha_phys * phys_score).clamp(min=1e-3, max=1.0)
                 else:
                     w_phys = torch.ones_like(adv).squeeze(-1) if adv.ndim > 1 else torch.ones_like(adv)
 
         # policy
         exp_adv = torch.exp(self.beta * adv.detach()).clamp(max=EXP_ADV_MAX)
-
         policy_out = self.policy(observations)
+
         if isinstance(policy_out, torch.distributions.Distribution):
             bc_losses = -policy_out.log_prob(actions)
         elif torch.is_tensor(policy_out):
@@ -281,18 +326,27 @@ class ImplicitQLearning(nn.Module):
                 _append_quantiles(out, "phys_residual", phys_residual, [0.50, 0.90, 0.95, 0.99])
                 _append_group_means(out, "phys_residual", phys_residual, corrupt_mask)
 
-            if self.algo_name == "physiql":
-                if self.use_forward:
-                    out["forward_loss"] = forward_loss.item()
-                if self.use_inverse:
-                    out["inverse_loss"] = inverse_loss.item()
-                if dyn_residual is not None:
-                    out["dyn_residual_mean"] = dyn_residual.mean().item()
-                if inv_residual is not None:
-                    out["inv_residual_mean"] = inv_residual.mean().item()
-                if phys_residual is not None:
-                    out["phys_residual_mean"] = phys_residual.mean().item()
-                out["w_phys_mean"] = w_phys.mean().item()
-                out["w_phys_std"] = w_phys.std().item()
+            if phys_score is not None:
+                _append_quantiles(out, "phys_score", phys_score, [0.50, 0.90, 0.95, 0.99])
+                _append_group_means(out, "phys_score", phys_score, corrupt_mask)
+
+        if self.algo_name == "physiql":
+            if self.use_forward:
+                out["forward_loss"] = forward_loss.item()
+            if self.use_inverse:
+                out["inverse_loss"] = inverse_loss.item()
+
+            if dyn_residual is not None:
+                out["dyn_residual_mean"] = dyn_residual.mean().item()
+            if inv_residual is not None:
+                out["inv_residual_mean"] = inv_residual.mean().item()
+            if phys_residual is not None:
+                out["phys_residual_mean"] = phys_residual.mean().item()
+            if phys_score is not None:
+                out["phys_score_mean"] = phys_score.mean().item()
+                out["phys_score_std"] = phys_score.std().item()
+
+            out["w_phys_mean"] = w_phys.mean().item()
+            out["w_phys_std"] = w_phys.std().item()
 
         return out

@@ -229,6 +229,10 @@ def main(args):
         use_forward=args.use_forward,
         use_inverse=args.use_inverse,
         use_phys=args.use_phys,
+        phys_norm_mode=args.phys_norm_mode,
+        phys_norm_eps=args.phys_norm_eps,
+        phys_quantile_center=args.phys_quantile_center,
+        phys_quantile_upper=args.phys_quantile_upper,
     )
 
     best_normalized_return = -1e9
@@ -317,6 +321,11 @@ if __name__ == "__main__":
     parser.add_argument("--lambda-inv", type=float, default=1.0)
     parser.add_argument("--alpha-phys", type=float, default=0.1)
     parser.add_argument("--aux-weight", type=float, default=1.0)
+    parser.add_argument("--phys-norm-mode", type=str, default="none",
+                        choices=["none", "std", "quantile"])
+    parser.add_argument("--phys-norm-eps", type=float, default=1e-6)
+    parser.add_argument("--phys-quantile-center", type=float, default=0.50)
+    parser.add_argument("--phys-quantile-upper", type=float, default=0.95)
 
     parser.add_argument("--wandb-entity", type=str, default="dlut-pqj")
     parser.add_argument("--wandb-project", type=str, default="iql-phys")
