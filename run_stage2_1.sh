@@ -6,12 +6,12 @@ export MUJOCO_PY_MUJOCO_PATH=/home/peng/.mujoco/mujoco210
 export MUJOCO_GL=egl
 
 ENV_NAME="hopper-medium-v2"
-GPU_ID=3
+GPU_ID=0
 PYTHON_BIN=/opt/conda/miniconda3/envs/iql/bin/python
 WANDB_ENTITY="dlut-pqj"
 WANDB_PROJECT="A10-iql"
 
-PHYS_NORM_MODE="none"      # none / std / quantile
+PHYS_NORM_MODE="quantile"      # none / std / quantile
 PHYS_Q_CENTER=0.50
 PHYS_Q_UPPER=0.95
 
@@ -41,5 +41,7 @@ do
     --corruption-seed 123 \
     --wandb-entity "${WANDB_ENTITY}" \
     --wandb-project "${WANDB_PROJECT}" \
+    --core-log-interval 100 \
+    --analysis-log-interval 5000 \
     > "${LOG_DIR}/train.log" 2>&1 &
 done
