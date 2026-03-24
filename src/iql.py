@@ -4,7 +4,8 @@ import torch
 import torch.nn as nn
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from .util import DEFAULT_DEVICE, update_exponential_moving_average
+from . import util
+from .util import update_exponential_moving_average
 
 EXP_ADV_MAX = 100.0
 
@@ -137,10 +138,10 @@ class ImplicitQLearning(nn.Module):
         self.use_inverse = bool(use_inverse) and (algo_name == "physiql") and (inverse_model is not None)
         self.use_phys = bool(use_phys) and (algo_name == "physiql")
 
-        self.qf = qf.to(DEFAULT_DEVICE)
-        self.q_target = copy.deepcopy(qf).requires_grad_(False).to(DEFAULT_DEVICE)
-        self.vf = vf.to(DEFAULT_DEVICE)
-        self.policy = policy.to(DEFAULT_DEVICE)
+        self.qf = qf.to(util.DEFAULT_DEVICE)
+        self.q_target = copy.deepcopy(qf).requires_grad_(False).to(util.DEFAULT_DEVICE)
+        self.vf = vf.to(util.DEFAULT_DEVICE)
+        self.policy = policy.to(util.DEFAULT_DEVICE)
 
         self.v_optimizer = optimizer_factory(self.vf.parameters())
         self.q_optimizer = optimizer_factory(self.qf.parameters())
@@ -170,19 +171,19 @@ class ImplicitQLearning(nn.Module):
         self.encoder = None
         self.encoder_optimizer = None
         if encoder is not None and (self.use_forward or self.use_inverse):
-            self.encoder = encoder.to(DEFAULT_DEVICE)
+            self.encoder = encoder.to(util.DEFAULT_DEVICE)
             self.encoder_optimizer = optimizer_factory(self.encoder.parameters())
 
         self.forward_model = None
         self.forward_optimizer = None
         if self.use_forward:
-            self.forward_model = forward_model.to(DEFAULT_DEVICE)
+            self.forward_model = forward_model.to(util.DEFAULT_DEVICE)
             self.forward_optimizer = optimizer_factory(self.forward_model.parameters())
 
         self.inverse_model = None
         self.inverse_optimizer = None
         if self.use_inverse:
-            self.inverse_model = inverse_model.to(DEFAULT_DEVICE)
+            self.inverse_model = inverse_model.to(util.DEFAULT_DEVICE)
             self.inverse_optimizer = optimizer_factory(self.inverse_model.parameters())
 
     def _compute_phys_terms(self, observations, actions, next_observations):
